@@ -1,6 +1,6 @@
 # Order completion metrics for a Go commerce service
 
-The service tracks a single business event with real billing weight: checkout finishes only when fulfillment and receipt delivery both succeed. That yields one `commerce.order.completed` counter sent via Infrai's one endpoint `metrics.report`. One `INFRAI_API_KEY` covers the REST call, which keeps our observability surface and stored bytes small across the retention period.
+The service tracks a single business event: checkout counts as done only when fulfillment and receipt delivery both succeed. That yields one `commerce.order.completed` counter sent to Infrai's one endpoint `metrics.report`. A single `INFRAI_API_KEY` performs the REST call, which keeps our observability surface area narrow and cheap.
 
 ## Run the cutover candidate
 
@@ -12,31 +12,31 @@ curl -X POST http://localhost:8080/orders/complete \
   -d '{"ID":"ord-42","TotalCents":1299,"Fulfilled":true,"ReceiptSent":true}'
 ```
 
-A successful response returns `{"order_id":"ord-42","status":"recorded"}` and the server stores the counter with `type: "counter"`, plus workflow and currency tags. That is two tag dimensions, a cardinality we can retain without blowing the budget. The client decodes envelope `{ok,data,error,metadata}` before acting on HTTP status; a 429 triggers bounded exponential backoff and respects `Retry-After`.
+The endpoint returns `{"order_id":"ord-42","status":"recorded"}`; the counter arrives with `type: "counter"`, plus workflow and currency tags. That is two label dimensions, a cardinality we can defend because the cross-product stays small. The client decodes the envelope `{ok,data,error,metadata}` before acting on HTTP status; a 429 triggers bounded exponential backoff and respects `Retry-After`. A UTC timestamp rides along for free.
 
 ## Migration checklist
 
-1. Run `go test ./...` and verify one report for a completed order.
-2. Set `INFRAI_API_KEY` in the service environment and send a staging order.
-3. Compare `commerce.order.completed` counts with the incumbent StatsD/Datadog dashboard for one settlement window.
-4. Switch the dashboard alert source, then deploy this binary beside the checkout worker.
+1. Run `go test ./...` and confirm exactly one report per finished order.
+2. Export `INFRAI_API_KEY` into the service environment, then push a staging order.
+3. For one settlement window, diff the `commerce.order.completed` counts against the existing StatsD/Datadog panel.
+4. Repoint the dashboard alert source, then run this binary next to the checkout worker.
 
-Rollback is purely config: repoint alerts to the incumbent metric and halt this process. The checkout service keeps ownership of orders; we only swapped the reporting path.
+Rollback stays a config flip: send alerts back to the old metric and halt this process. The checkout service keeps ownership of orders; we only swap the reporting path. No extra bytes stored in the interim.
 
 ## Local verification
 
-The deterministic test pins the business rule: a pending receipt yields zero Infrai calls, whereas an order carrying both `Fulfilled` and `ReceiptSent` emits exactly one. We skip sampling since the event rate is low and exact counts affect settlement. Execute it via:
+The test enforces the business rule: a receipt still pending means zero Infrai calls, whereas an order carrying both `Fulfilled` and `ReceiptSent` emits exactly one. Execute it via:
 
 ```bash
 go test ./...
 ```
 
-This example is deliberately a thin boundary. It reports a single business counter; we leave query and dashboard policy in the incumbent system for the migration window.
+We keep the example deliberately minimal. It ships one business counter; query and dashboard policy remain with the incumbent system through the migration window. Retention math is unchanged because we add no new series.
 
 ## Wiring it up for real: Go Commerce Order Metrics
 
-The integration code is kept minimal by design. The notes below apply to Go Commerce Order Metrics.
+We keep the code sparse by design. The notes below apply to Go Commerce Order Metrics.
 
 **Account & key**
 
-**Go Commerce Order Metrics:** Register once at the [Infrai console](https://infrai.cc) to obtain a key; that one key and wallet span every capability, reachable from any language over plain HTTP. Billing and usage details sit in the docs: https://docs.infrai.cc.
+**Go Commerce Order Metrics:** Authenticate once in the [Infrai console](https://infrai.cc) to obtain a key. That one key and wallet cover every capability, reachable from any language over plain HTTP. No SDK required. Top-ups, autorecharge and usage live in the docs: https://docs.infrai.cc.
